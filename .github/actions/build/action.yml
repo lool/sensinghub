@@ -13,12 +13,13 @@ runs:
     - name: Build Project (Docker)
       id: build
       shell: bash
+      env:
+        DOCKER_IMAGE: ${{ inputs.docker_image }}
       run: |
         set -euxo pipefail
 
-        : "${GITHUB_WORKSPACE:=${{ github.workspace }}}"
         echo "Workspace: ${GITHUB_WORKSPACE}"
-        echo "Docker image: ${{ inputs.docker_image }}"
+        echo "Docker image: ${DOCKER_IMAGE}"
 
         # Validate build script provided via environment
         if [[ -z "${BUILD_SCRIPT:-}" ]]; then
@@ -35,7 +36,7 @@ runs:
           -e BUILD_ARGS="${BUILD_ARGS:-}" \
           -e BUILD_SCRIPT="${BUILD_SCRIPT}" \
           --privileged --user root \
-          "${{ inputs.docker_image }}" \
+          "${DOCKER_IMAGE}" \
           bash -c '
             set -euxo pipefail
             # Ensure build script exists

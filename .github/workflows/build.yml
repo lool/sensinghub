@@ -60,7 +60,6 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          : "${GITHUB_WORKSPACE:=${{ github.workspace }}}"
           OWNER_UID="$(id -u)"
           OWNER_GID="$(id -g)"
           if [ -d "${GITHUB_WORKSPACE}" ]; then
@@ -100,10 +99,10 @@ jobs:
         run: |
           set -euxo pipefail
           aws s3api head-object \
-            --bucket "${{ env.S3_BUCKET }}" \
-            --key "${{ env.RB3GEN2_ROOTFS_KEY }}" \
+            --bucket "${S3_BUCKET}" \
+            --key "${RB3GEN2_ROOTFS_KEY}" \
             >/dev/null 2>&1 || {
-              echo "ERROR: S3 key ${{ env.RB3GEN2_ROOTFS_KEY }} not found in bucket ${{ env.S3_BUCKET }}." >&2
+              echo "ERROR: S3 key ${RB3GEN2_ROOTFS_KEY} not found in bucket ${S3_BUCKET}." >&2
               exit 1
             }
 
@@ -111,7 +110,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          aws s3 cp "s3://${{ env.S3_BUCKET }}/${{ env.RB3GEN2_ROOTFS_KEY }}" .
+          aws s3 cp "s3://${S3_BUCKET}/${RB3GEN2_ROOTFS_KEY}" .
           ls -lh "./qcom-multimedia-image-rb3gen2-core-kit.rootfs.qcomflash.tar.gz"
 
       # --- Normalize & record original tar top-level entries ---
@@ -138,6 +137,8 @@ jobs:
 
       - name: Extract RB3 Gen2 rootfs image (non-destructive)
         shell: bash
+        env:
+          TOPLEVELS: ${{ steps.orig_tar_meta.outputs.TOPLEVELS }}
         run: |
           set -euxo pipefail
           # Extract directly into current workspace (no extra 'rootfs/' folder)
@@ -145,25 +146,33 @@ jobs:
           echo "Extracted files (workspace top-level):"
           ls -la | sed -n '1,200p'
           echo "Expected top-level entries from original tar:"
-          echo "${{ steps.orig_tar_meta.outputs.TOPLEVELS }}"
+          echo "${TOPLEVELS}"
 
       - name: Build Docker image locally
         shell: bash
+        env:
+          DOCKER_IMAGE: ${{ inputs.docker_image }}
+          RUNNER_USER: ${{ steps.idvars.outputs.RUNNER_USER }}
+          RUNNER_UID: ${{ steps.idvars.outputs.RUNNER_UID }}
+          RUNNER_GID: ${{ steps.idvars.outputs.RUNNER_GID }}
         run: |
           set -euxo pipefail
           docker build \
-            -t "${{ inputs.docker_image }}" \
-            --build-arg USER="${{ steps.idvars.outputs.RUNNER_USER }}" \
-            --build-arg USER_ID="${{ steps.idvars.outputs.RUNNER_UID }}" \
-            --build-arg GROUP_ID="${{ steps.idvars.outputs.RUNNER_GID }}" \
+            -t "${DOCKER_IMAGE}" \
+            --build-arg USER="${RUNNER_USER}" \
+            --build-arg USER_ID="${RUNNER_UID}" \
+            --build-arg GROUP_ID="${RUNNER_GID}" \
             -f Dockerfile .
 
       - name: Export env for composite
         shell: bash
+        env:
+          INPUT_BUILD_SCRIPT: ${{ inputs.build_script }}
+          INPUT_BUILD_ARGS: ${{ inputs.build_args }}
         run: |
           set -euxo pipefail
-          echo "BUILD_SCRIPT=${{ inputs.build_script }}" >> "$GITHUB_ENV"
-          echo "BUILD_ARGS=${{ inputs.build_args }}" >> "$GITHUB_ENV"
+          echo "BUILD_SCRIPT=${INPUT_BUILD_SCRIPT}" >> "$GITHUB_ENV"
+          echo "BUILD_ARGS=${INPUT_BUILD_ARGS}" >> "$GITHUB_ENV"
 
       - name: Build via composite
         uses: ./.github/actions/build
@@ -176,7 +185,6 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          : "${GITHUB_WORKSPACE:=${{ github.workspace }}}"
           BUILD_DIR="${GITHUB_WORKSPACE}/build"
           TAR_PATH="${GITHUB_WORKSPACE}/build.tar"
           mkdir -p "${BUILD_DIR}"
@@ -187,9 +195,10 @@ jobs:
 
       - name: Verify build.tar contents (non-destructive)
         shell: bash
+        env:
+          TAR_PATH: ${{ steps.create_build_tar.outputs.tar_path }}
         run: |
           set -euxo pipefail
-          TAR_PATH="${{ steps.create_build_tar.outputs.tar_path }}"
           echo "Listing archive contents for verification:"
           tar -tzf "${TAR_PATH}" | sed -n '1,80p'
           
@@ -217,22 +226,26 @@ jobs:
       - name: Capture image mtime (before)
         id: mtime_before
         shell: bash
+        env:
+          IMG_PATH: ${{ steps.locate_img.outputs.IMG_PATH }}
         run: |
           set -euxo pipefail
-          IMG_PATH="${{ steps.locate_img.outputs.IMG_PATH }}"
           MTIME_BEFORE="$(stat -c '%y' "${IMG_PATH}")"
           echo "mtime_before=${MTIME_BEFORE}" >> "$GITHUB_OUTPUT"
 
       # --- Modify rootfs INSIDE Docker (mount -o loop, copy, umount) ---
       - name: Modify rootfs inside Docker
         shell: bash
+        env:
+          DOCKER_IMAGE: ${{ inputs.docker_image }}
+          BUILD_OUT_ROOT: ${{ inputs.build_out_root }}
         run: |
           set -euxo pipefail
           # Run as root in a privileged container, bind-mount the workspace
           docker run --rm --privileged --user root \
             -v "${GITHUB_WORKSPACE}:/workspace" \
-            -e BUILD_OUT_ROOT="${{ inputs.build_out_root }}" \
-            "${{ inputs.docker_image }}" \
+            -e BUILD_OUT_ROOT \
+            "${DOCKER_IMAGE}" \
             bash -lc '
               set -euxo pipefail
 
@@ -307,13 +320,15 @@ jobs:
 
       - name: Verify image mtime changed (after)
         shell: bash
+        env:
+          IMG_PATH: ${{ steps.locate_img.outputs.IMG_PATH }}
+          MTIME_BEFORE: ${{ steps.mtime_before.outputs.mtime_before }}
         run: |
           set -euxo pipefail
-          IMG_PATH="${{ steps.locate_img.outputs.IMG_PATH }}"
           MTIME_AFTER="$(stat -c '%y' "${IMG_PATH}")"
-          echo "Before: ${{ steps.mtime_before.outputs.mtime_before }}"
+          echo "Before: ${MTIME_BEFORE}"
           echo "After:  ${MTIME_AFTER}"
-          if [ "${MTIME_AFTER}" = "${{ steps.mtime_before.outputs.mtime_before }}" ]; then
+          if [ "${MTIME_AFTER}" = "${MTIME_BEFORE}" ]; then
             echo "ERROR: Image mtime did not change — copy may have failed." >&2
             exit 1
           fi
@@ -324,16 +339,18 @@ jobs:
       - name: Create modified rootfs tar (preserve layout & name)
         id: repack_rootfs
         shell: bash
+        env:
+          MODIFIED_TAR_NAME: ${{ inputs.modified_tar_name }}
+          TOPLEVELS: ${{ steps.orig_tar_meta.outputs.TOPLEVELS }}
         run: |
           set -euxo pipefail
-          : "${GITHUB_WORKSPACE:=${{ github.workspace }}}"
           ART_DIR="${GITHUB_WORKSPACE}/artifacts"
           mkdir -p "${ART_DIR}"
 
-          MOD_TAR="${ART_DIR}/${{ inputs.modified_tar_name }}"
+          MOD_TAR="${ART_DIR}/${MODIFIED_TAR_NAME}"
 
           # Read normalized top-levels
-          IFS=' ' read -r -a TOPLEVELS <<< "${{ steps.orig_tar_meta.outputs.TOPLEVELS }}"
+          IFS=' ' read -r -a TOPLEVELS <<< "${TOPLEVELS}"
 
           cd "${GITHUB_WORKSPACE}"
 
@@ -350,6 +367,9 @@ jobs:
       - name: Create file list (build.tar + modified rootfs tar)
         id: make_file_list_all
         shell: bash
+        env:
+          BUILD_TAR: ${{ steps.create_build_tar.outputs.tar_path }}
+          MODIFIED_TAR: ${{ steps.repack_rootfs.outputs.modified_tar }}
         run: |
           set -euxo pipefail
           WORKSPACE="${GITHUB_WORKSPACE}"
@@ -357,8 +377,8 @@ jobs:
           FILE_LIST_ALL="${ARTIFACTS_DIR}/file_list_all.txt"
           mkdir -p "${ARTIFACTS_DIR}"
           : > "${FILE_LIST_ALL}"
-          echo "${{ steps.create_build_tar.outputs.tar_path }}" >> "${FILE_LIST_ALL}"
-          echo "${{ steps.repack_rootfs.outputs.modified_tar }}" >> "${FILE_LIST_ALL}"
+          echo "${BUILD_TAR}" >> "${FILE_LIST_ALL}"
+          echo "${MODIFIED_TAR}" >> "${FILE_LIST_ALL}"
           echo "==> Combined artifacts list:"; cat "${FILE_LIST_ALL}"
           echo "file_list_all=${FILE_LIST_ALL}" >> "$GITHUB_OUTPUT"
 
@@ -377,11 +397,17 @@ jobs:
     if: success()
     steps:
       - name: Publish build summary
+        env:
+          DOCKER_IMAGE: ${{ inputs.docker_image }}
+          BUILD_SCRIPT: ${{ inputs.build_script }}
+          BUILD_ARGS: ${{ inputs.build_args }}
         run: |
-          echo "# Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "Build successful!" >> $GITHUB_STEP_SUMMARY
-          echo "- Docker image: ${{ inputs.docker_image }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Build script: ${{ inputs.build_script }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Build args: ${{ inputs.build_args }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Uploaded to S3 bucket: ${{ env.S3_BUCKET }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Upload location: qualcomm/sensinghub/${{ github.run_id }}-${{ github.run_attempt }}" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "# Build Summary"
+            echo "Build successful!"
+            echo "- Docker image: ${DOCKER_IMAGE}"
+            echo "- Build script: ${BUILD_SCRIPT}"
+            echo "- Build args: ${BUILD_ARGS}"
+            echo "- Uploaded to S3 bucket: ${S3_BUCKET}"
+            echo "- Upload location: qualcomm/sensinghub/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          } >> "$GITHUB_STEP_SUMMARY"
