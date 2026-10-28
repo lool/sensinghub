@@ -24,6 +24,7 @@ runs:
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       with:
         fetch-depth: 0  # Fetch all history for all branches and tags
+        persist-credentials: false
         ref: ${{ inputs.pr_ref }}
         repository: ${{ inputs.pr_repo }}
 
@@ -32,6 +33,7 @@ runs:
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       with:
         fetch-depth: 0
+        persist-credentials: false
         ref: ${{ inputs.base_ref }}
 
     - name: Checkout current repo and ref (Fallback)
@@ -39,6 +41,7 @@ runs:
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       with:
         fetch-depth: 0
+        persist-credentials: false
         ref: ${{ github.ref }}
 
     - name: Checkout for workflow_dispatch
@@ -46,4 +49,5 @@ runs:
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       with:
         fetch-depth: 0
+        persist-credentials: false
         ref: ${{ inputs.base_ref }}
