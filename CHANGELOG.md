@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.3.3] - 2026-10-28
+- Fix qshJsonParser member initialization order
+- Consolidate hub1/hub2 sensor registry configs into default
+- Update SPDX license identifier to BSD-3-Clause 
+
 ## [2.3.2] - 2026-10-12
 
 - Add registry configs for kalama/qrb5165/qrbx210 and new sensor protos
