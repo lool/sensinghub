@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   qcom-preflight-checks:
-    uses: qualcomm/qcom-reusable-workflows/.github/workflows/reusable-qcom-preflight-checks-orchestrator.yml@v2
+    uses: qualcomm/qcom-reusable-workflows/.github/workflows/reusable-qcom-preflight-checks-orchestrator.yml@4997e6b0cfd3c833e85376adfcd93881307fe625 # v2.0.15
     with:
       # ✅ Preflight Checkers
       enable-repolinter-check: true          # default: true
